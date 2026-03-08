@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/context/AuthContext";
 
 const ADMIN_LINKS = [
   { href: "/admin", label: "Dashboard", icon: "◼" },
@@ -37,6 +38,8 @@ export function AdminLayout({ children }) {
 }
 
 export default function AdminDashboardPage() {
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState({ totalItems: 0, activeRentals: 0, totalRevenue: 0, overdueRentals: 0, pendingReturns: 0, suspendedUsers: 0 });
   const [recent, setRecent] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -63,6 +66,14 @@ export default function AdminDashboardPage() {
     }
     load();
   }, []);
+
+  // Redirect non-admins
+  useEffect(() => {
+    if (!authLoading && (!user || !isAdmin)) router.push("/");
+  }, [authLoading, user, isAdmin, router]);
+
+  if (authLoading) return <div><Header /><div className="container"><div className="centerNotice" style={{ marginTop: 24 }}>Loading...</div></div></div>;
+  if (!isAdmin) return null;
 
   function fmtPrice(v) { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v); }
   function fmtTime(s) { return new Date(s).toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit" }); }

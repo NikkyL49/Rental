@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [search, setSearch] = useState("");
 
   function nc(href) {
@@ -38,6 +38,9 @@ export default function Header() {
             <>
               <Link href="/my-rentals" className={nc("/my-rentals")}>Rentals</Link>
               <Link href="/my-items" className={nc("/my-items")}>Listed</Link>
+              {isAdmin && (
+                <Link href="/admin" className={nc("/admin")} style={{ marginLeft: 4, color: "rgba(255,255,255,0.6)", fontSize: 12 }}>Admin</Link>
+              )}
               <Link href="/profile" className={nc("/profile")} style={{
                 marginLeft: 8,
                 background: "rgba(255,255,255,0.12)",

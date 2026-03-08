@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import { AdminLayout } from "../page.js";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/context/AuthContext";
 
 export default function AdminUsersPage() {
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [users, setUsers] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (!authLoading && (!user || !isAdmin)) router.push("/"); }, [authLoading, user, isAdmin, router]);
+  if (authLoading) return <div><Header /><div className="container"><div className="centerNotice" style={{ marginTop: 24 }}>Loading...</div></div></div>;
+  if (!isAdmin) return null;
 
   async function load() {
     const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });

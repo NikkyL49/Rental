@@ -1,21 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Header from "@/components/Header";
 import { AdminLayout } from "../page.js";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/context/AuthContext";
 
 function fmtDate(s) { if (!s) return "—"; return new Date(s).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" }); }
 function fmtPrice(v) { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(v) || 0); }
 
 export default function AdminRentalsPage() {
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [rentals, setRentals] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => { if (!authLoading && (!user || !isAdmin)) router.push("/"); }, [authLoading, user, isAdmin, router]);
+  if (authLoading) return <div><Header /><div className="container"><div className="centerNotice" style={{ marginTop: 24 }}>Loading...</div></div></div>;
+  if (!isAdmin) return null;
 
   async function load() {
     let q = supabase.from("rental_transactions").select("*").order("created_at", { ascending: false });
