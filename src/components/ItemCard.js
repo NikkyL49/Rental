@@ -1,47 +1,50 @@
+"use client";
+
 import Link from "next/link";
 
-function formatPrice(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return "$0.00";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(num);
+function fmtPrice(val) {
+  const n = Number(val);
+  if (!isFinite(n) || n === 0) return null;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-export default function ItemCard({ item, href, showOwner = true, actionLabel = "View item" }) {
-  const statusClass =
-    item.status === "available" ? "status statusAvailable" : "status statusUnavailable";
+export default function ItemCard({ item, href, showOwner = true, actionLabel }) {
+  const price = fmtPrice(item.daily_rate ?? item.price);
+  const condLabel = item.condition?.replace("_", " ") ?? null;
 
   return (
-    <article className="card">
-      <div className="itemMediaFrame">
+    <Link href={href} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+      <div className="itemCard">
         {item.photo_url ? (
           <img
-            className="itemMedia"
+            className="itemCardImg"
             src={item.photo_url}
-            alt={item.name ? `Photo for ${item.name}` : "Item photo"}
-            loading="lazy"
+            alt={item.name}
+            style={{ aspectRatio: "16/10", objectFit: "cover" }}
           />
         ) : (
-          <div className="itemMedia itemMediaPlaceholder">No image</div>
+          <div className="itemCardImgPlaceholder" style={{ aspectRatio: "16/10" }}>
+            No image
+          </div>
         )}
+        <div className="itemCardBody">
+          {price && (
+            <p className="itemCardPrice">
+              {price}
+              <span style={{ fontWeight: 400, color: "#64748b", fontSize: 11 }}>/day</span>
+            </p>
+          )}
+          <p className="itemCardName">{item.name}</p>
+          {showOwner && item.owner_name && (
+            <p className="itemCardMeta">{item.owner_name}</p>
+          )}
+          {actionLabel && (
+            <p className="itemCardMeta" style={{ marginTop: 6, color: "#000", fontWeight: 600 }}>
+              {actionLabel} →
+            </p>
+          )}
+        </div>
       </div>
-
-      <div className="rowBetween">
-        <h3 className="cardTitle">{item.name}</h3>
-        <span className={statusClass}>{item.status}</span>
-      </div>
-
-      {item.description ? <p className="metaClamp">{item.description}</p> : null}
-      {showOwner ? <p className="meta">Posted by: {item.owner_name || item.owner_email}</p> : null}
-      <p className="meta">Price: {formatPrice(item.price)}</p>
-
-      <div className="actions">
-        <Link href={href} className="btn btnGhost">
-          {actionLabel}
-        </Link>
-      </div>
-    </article>
+    </Link>
   );
 }

@@ -8,37 +8,30 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { sanitizeFileName, validateImageFile } from "@/lib/fileHelpers";
 
-function formatPrice(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return "$0.00";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(num);
+function fmtPrice(v) {
+  const n = Number(v);
+  if (!isFinite(n) || n === 0) return null;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
+
+function Stars({ rating = 0 }) {
+  const r = Math.round(Number(rating));
+  return <span className="stars">{"★".repeat(r)}{"☆".repeat(Math.max(0, 5 - r))}</span>;
+}
+
+const CONDITION_LABELS = { new: "New", like_new: "Like New", good: "Good", fair: "Fair" };
+const CONDITION_COLORS = { new: "badgeGreen", like_new: "badgeBlue", good: "badgeBlue", fair: "badgeOrange" };
 
 async function uploadItemImage(userId, itemId, file) {
   const path = `${userId}/${itemId}/${Date.now()}-${sanitizeFileName(file.name)}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from("item-images")
-    .upload(path, file, { contentType: file.type });
-
-  if (uploadError) {
-    throw uploadError;
-  }
-
+  const { error } = await supabase.storage.from("item-images").upload(path, file, { contentType: file.type });
+  if (error) throw error;
   const { data } = supabase.storage.from("item-images").getPublicUrl(path);
   return { photo_url: data.publicUrl, photo_path: path };
 }
-
 async function deleteItemImage(path) {
   if (!path) return;
-
-  const { error } = await supabase.storage.from("item-images").remove([path]);
-  if (error) {
-    throw error;
-  }
+  await supabase.storage.from("item-images").remove([path]);
 }
 
 export default function ItemDetailPage() {
@@ -48,369 +41,284 @@ export default function ItemDetailPage() {
   const id = params?.id;
 
   const [item, setItem] = useState(null);
+  const [location, setLocation] = useState(null);
+  const [specs, setSpecs] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [editMode, setEditMode] = useState(false);
 
+  // Edit form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
+  const [dailyRate, setDailyRate] = useState("");
+  const [weeklyRate, setWeeklyRate] = useState("");
+  const [semesterRate, setSemesterRate] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
   const [status, setStatus] = useState("available");
   const [newPhotoFile, setNewPhotoFile] = useState(null);
 
-  const isOwner = !!user && !!item && user.id === item.owner_id;
-
   useEffect(() => {
     if (!id) return;
-
-    let cancelled = false;
-
-    supabase
-      .from("items")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-
-        if (error) {
-          console.error(error);
-          setMessage(error.message);
-          setItem(null);
-          setIsLoaded(true);
-          return;
+    Promise.all([
+      supabase.from("items").select("*").eq("id", id).maybeSingle(),
+      supabase.from("item_specifications").select("*").eq("item_id", id),
+    ]).then(([ir, sr]) => {
+      const it = ir.data ?? null;
+      setItem(it);
+      setSpecs(sr.data ?? []);
+      if (it) {
+        setName(it.name ?? "");
+        setDescription(it.description ?? "");
+        setDailyRate(it.daily_rate ?? "");
+        setWeeklyRate(it.weekly_rate ?? "");
+        setSemesterRate(it.semester_rate ?? "");
+        setDepositAmount(it.deposit_amount ?? "");
+        setStatus(it.item_status ?? "available");
+        if (it.location_id) {
+          supabase.from("locations").select("*").eq("id", it.location_id).maybeSingle()
+            .then(({ data }) => setLocation(data));
         }
-
-        setItem(data ?? null);
-        setName(data?.name ?? "");
-        setDescription(data?.description ?? "");
-        setPrice(data?.price != null ? String(data.price) : "");
-        setStatus(data?.status ?? "available");
-        setMessage("");
-        setIsLoaded(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      }
+      setIsLoaded(true);
+    });
   }, [id]);
 
-  async function saveItem(event) {
-    event.preventDefault();
-    if (!item || !isOwner) return;
+  const isOwner = user && item && user.id === item.owner_id;
 
-    const numericPrice = Number(price);
-    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
-      setMessage("Please enter a valid non-negative price.");
-      return;
-    }
-
-    const imageValidation = validateImageFile(newPhotoFile);
-    if (imageValidation) {
-      setMessage(imageValidation);
-      return;
-    }
-
-    setBusy(true);
-    setMessage("");
-
+  async function saveEdit() {
+    setBusy(true); setMessage("");
     try {
-      const previousPhotoPath = item.photo_path || "";
-      const updates = {
-        name: name.trim(),
-        description: description.trim(),
-        price: numericPrice,
-        status,
-        updated_at: new Date().toISOString(),
-      };
-
+      let photoUpdate = {};
       if (newPhotoFile) {
-        const uploaded = await uploadItemImage(user.id, item.id, newPhotoFile);
-        updates.photo_url = uploaded.photo_url;
-        updates.photo_path = uploaded.photo_path;
+        const err = validateImageFile(newPhotoFile);
+        if (err) { setMessage(err); setBusy(false); return; }
+        if (item.photo_path) await deleteItemImage(item.photo_path);
+        photoUpdate = await uploadItemImage(user.id, item.id, newPhotoFile);
       }
-
-      const { data, error } = await supabase
-        .from("items")
-        .update(updates)
-        .eq("id", item.id)
-        .eq("owner_id", user.id)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      if (
-        newPhotoFile &&
-        previousPhotoPath &&
-        previousPhotoPath !== updates.photo_path
-      ) {
-        try {
-          await deleteItemImage(previousPhotoPath);
-        } catch (cleanupError) {
-          console.error(cleanupError);
-        }
-      }
-
-      setItem(data);
+      const { error } = await supabase.from("items").update({
+        name, description,
+        daily_rate: Number(dailyRate) || 0,
+        weekly_rate: Number(weeklyRate) || 0,
+        semester_rate: Number(semesterRate) || 0,
+        deposit_amount: Number(depositAmount) || 0,
+        item_status: status,
+        ...photoUpdate,
+      }).eq("id", item.id);
+      if (error) throw error;
+      setItem((prev) => ({ ...prev, name, description, daily_rate: dailyRate, weekly_rate: weeklyRate, semester_rate: semesterRate, deposit_amount: depositAmount, item_status: status, ...photoUpdate }));
+      setEditMode(false);
       setNewPhotoFile(null);
-      setMessage("Item updated.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to update item.");
-    } finally {
-      setBusy(false);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to save.");
     }
-  }
-
-  async function removeItemPhoto() {
-    if (!item || !isOwner || (!item.photo_path && !item.photo_url)) return;
-
-    const ok = window.confirm("Remove photo from this item?");
-    if (!ok) return;
-
-    setBusy(true);
-    setMessage("");
-
-    try {
-      if (item.photo_path) {
-        try {
-          await deleteItemImage(item.photo_path);
-        } catch (cleanupError) {
-          console.error(cleanupError);
-        }
-      }
-
-      const updates = {
-        photo_url: "",
-        photo_path: "",
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from("items")
-        .update(updates)
-        .eq("id", item.id)
-        .eq("owner_id", user.id)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      setItem(data);
-      setNewPhotoFile(null);
-      setMessage("Item photo removed.");
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Failed to remove item photo."
-      );
-    } finally {
-      setBusy(false);
-    }
+    setBusy(false);
   }
 
   async function deleteItem() {
-    if (!item || !isOwner) return;
     if (!window.confirm("Delete this item?")) return;
-
-    setBusy(true);
-    setMessage("");
-
+    setBusy(true); setMessage("");
     try {
-      if (item.photo_path) {
-        try {
-          await deleteItemImage(item.photo_path);
-        } catch (cleanupError) {
-          console.error(cleanupError);
-        }
-      }
-
-      const { error } = await supabase
-        .from("items")
-        .delete()
-        .eq("id", item.id)
-        .eq("owner_id", user.id);
-
-      if (error) {
-        throw error;
-      }
-
+      // First delete any rental_transactions referencing this item
+      const { error: rtError } = await supabase.from("rental_transactions").delete().eq("item_id", item.id);
+      if (rtError) throw rtError;
+      const { error } = await supabase.from("items").delete().eq("id", item.id);
+      if (error) throw error;
+      if (item.photo_path) await deleteItemImage(item.photo_path);
       router.push("/my-items");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to delete item.");
+    } catch (err) {
+      console.error("Delete error:", err);
+      const msg = err?.message || err?.details || err?.hint || JSON.stringify(err);
+      setMessage("Delete failed: " + msg);
       setBusy(false);
     }
   }
 
-  function contactOwner() {
-    if (!item) return;
-
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-
-    if (isOwner) {
-      setMessage("This is your item.");
-      return;
-    }
-
+  function handleMessageSeller() {
+    if (!user) { router.push("/login"); return; }
     router.push(`/messages?u=${item.owner_id}`);
   }
 
-  return (
-    <div className="container">
-      <Header />
+  if (!isLoaded) return <div><Header /><div className="container"><div className="centerNotice" style={{ marginTop: 24 }}>Loading...</div></div></div>;
+  if (!item) return <div><Header /><div className="container"><div className="centerNotice" style={{ marginTop: 24 }}>Item not found.</div></div></div>;
 
-      {!isLoaded ? (
-        <div className="centerNotice">Loading item...</div>
-      ) : !item ? (
-        <div className="centerNotice">Item not found.</div>
-      ) : (
-        <div className="stack">
-          <section className="card">
-            <div className="detailImageFrame">
-              {item.photo_url ? (
-                <img
-                  className="detailImage"
-                  src={item.photo_url}
-                  alt={item.name ? `Photo for ${item.name}` : "Item photo"}
-                />
+  return (
+    <div>
+      <Header />
+      <div className="container" style={{ paddingTop: 24 }}>
+        <Link href="/items" style={{ fontSize: 13, color: "var(--text-muted)" }}>← Back to Browse</Link>
+
+        <div className="detailLayout" style={{ marginTop: 20 }}>
+          {/* Left: Image */}
+          <div style={{ position: "sticky", top: 80 }}>
+            {item.photo_url
+              ? <img src={item.photo_url} alt={item.name} className="detailMainImg" />
+              : <div className="detailMainImg" style={{ background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 14 }}>No image</div>
+            }
+            {isOwner && editMode && (
+              <div className="field" style={{ marginTop: 12 }}>
+                <label className="label">Replace Photo</label>
+                <input type="file" accept="image/*" onChange={(e) => setNewPhotoFile(e.target.files?.[0] ?? null)} />
+              </div>
+            )}
+          </div>
+
+          {/* Right: Info */}
+          <div>
+            {/* Category + Title */}
+            <div style={{ marginBottom: 16 }}>
+              {item.category_id && <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>{item.category_id}</p>}
+              {editMode
+                ? <input value={name} onChange={(e) => setName(e.target.value)} style={{ fontSize: 24, fontWeight: 800, border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", width: "100%" }} />
+                : <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>{item.name}</h1>
+              }
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                {item.condition && <span className={`badge ${CONDITION_COLORS[item.condition] ?? "badgeGray"}`}>{CONDITION_LABELS[item.condition] ?? item.condition}</span>}
+                {item.item_status === "rented" && <span className="badge badgeRed">Rented</span>}
+                {item.item_status === "available" && <span className="badge badgeGreen">Available</span>}
+                {item.available_quantity > 0 && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.available_quantity} available</span>}
+              </div>
+            </div>
+
+            {/* Specs */}
+            {specs.length > 0 && (
+              <div className="detailSection">
+                <p className="detailSectionTitle">Specifications</p>
+                <table className="specsTable">
+                  <tbody>
+                    {specs.map((s) => (
+                      <tr key={s.id}>
+                        <td style={{ padding: "4px 12px 4px 0", fontSize: 13, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{s.spec_name}</td>
+                        <td style={{ padding: "4px 0", fontSize: 13, fontWeight: 500 }}>{s.spec_value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Location */}
+            {location && (
+              <div className="detailSection">
+                <p className="detailSectionTitle">Location</p>
+                <p style={{ margin: 0, fontSize: 14 }}>{location.name}</p>
+                {location.building && <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--text-muted)" }}>{location.building} — {location.hours}</p>}
+              </div>
+            )}
+
+            {/* Seller */}
+            <div className="detailSection">
+              <p className="detailSectionTitle">Seller</p>
+              <div className="sellerCard">
+                <div className="sellerAvatar">
+                  {(item.owner_name || item.owner_email || "U")[0].toUpperCase()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p className="sellerName">{item.owner_name || item.owner_email}</p>
+                  <p className="sellerRating">
+                    <Stars rating={item.owner_rating ?? 0} /> {item.owner_rating ? `${item.owner_rating}/5` : "No ratings yet"}
+                  </p>
+                </div>
+                {/* Message Seller button — only show if logged in and not the owner */}
+                {user && !isOwner && (
+                  <button onClick={handleMessageSeller} className="btn btnGhost btnSm" style={{ flexShrink: 0 }}>
+                    💬 Message
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Pricing */}
+            <div className="detailSection">
+              <p className="detailSectionTitle">Pricing</p>
+              {editMode ? (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[["Daily Rate", dailyRate, setDailyRate], ["Weekly Rate", weeklyRate, setWeeklyRate], ["Semester Rate", semesterRate, setSemesterRate], ["Deposit", depositAmount, setDepositAmount]].map(([lbl, val, fn]) => (
+                    <div className="field" key={lbl}>
+                      <label className="label">{lbl}</label>
+                      <input type="number" min="0" step="0.01" value={val} onChange={(e) => fn(e.target.value)} />
+                    </div>
+                  ))}
+                </div>
               ) : (
-                <div className="detailImage detailImagePlaceholder">No image</div>
+                <div className="priceGrid">
+                  {[
+                    { label: "Daily", val: item.daily_rate },
+                    { label: "Weekly", val: item.weekly_rate },
+                    { label: "Semester", val: item.semester_rate },
+                    { label: "Deposit", val: item.deposit_amount },
+                  ].filter(({ val }) => Number(val) > 0).map(({ label, val }) => (
+                    <div className="priceBox" key={label}>
+                      <p className="priceBoxLabel">{label}</p>
+                      <p className="priceBoxValue">{fmtPrice(val)}</p>
+                    </div>
+                  ))}
+                  {!item.daily_rate && Number(item.price) > 0 && (
+                    <div className="priceBox">
+                      <p className="priceBoxLabel">Price</p>
+                      <p className="priceBoxValue">{fmtPrice(item.price)}</p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
-            <div className="rowBetween" style={{ marginTop: 12 }}>
-              <h1 className="detailTitle">{item.name}</h1>
-              <span
-                className={
-                  item.status === "available"
-                    ? "status statusAvailable"
-                    : "status statusUnavailable"
-                }
-              >
-                {item.status}
-              </span>
+            {/* Description */}
+            <div className="detailSection">
+              <p className="detailSectionTitle">Description</p>
+              {editMode
+                ? <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} style={{ width: "100%", fontSize: 14 }} />
+                : <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7, color: "var(--text-muted)" }}>{item.description || "No description provided."}</p>
+              }
             </div>
 
-            {item.description ? <p className="meta">{item.description}</p> : null}
-            <p className="meta">Posted by: {item.owner_name || item.owner_email}</p>
-            <p className="meta">Price: {formatPrice(item.price)}</p>
+            {/* Edit: status */}
+            {editMode && (
+              <div className="detailSection">
+                <div className="field">
+                  <label className="label">Availability Status</label>
+                  <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                    <option value="available">Available</option>
+                    <option value="rented">Rented</option>
+                    <option value="maintenance">Maintenance</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            {message && <p className="messageText errorText" style={{ marginTop: 8 }}>{message}</p>}
 
             {!isOwner ? (
-              <div className="actions">
-                <button
-                  type="button"
-                  className="btn btnPrimary"
-                  onClick={contactOwner}
-                  disabled={busy}
+              <div className="actions" style={{ marginTop: 20 }}>
+                <Link
+                  href={item.item_status === "available" ? `/items/${item.id}/rent` : "#"}
+                  className={`btn btnPrimary btnLg${item.item_status !== "available" ? " disabled" : ""}`}
+                  style={{ flex: 1, justifyContent: "center", opacity: item.item_status !== "available" ? 0.5 : 1, pointerEvents: item.item_status !== "available" ? "none" : "auto" }}
                 >
-                  Message owner
-                </button>
-              </div>
-            ) : null}
-          </section>
-
-          {isOwner ? (
-            <form className="formCard" onSubmit={saveItem}>
-              <h2 style={{ margin: 0 }}>Edit Item</h2>
-
-              <div className="field" style={{ marginTop: 12 }}>
-                <label className="label">Item name</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="field">
-                <label className="label">Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </div>
-
-              <div className="field">
-                <label className="label">Replace photo (optional, max 5MB)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setNewPhotoFile(e.target.files?.[0] ?? null)}
-                />
-              </div>
-
-              <div className="field">
-                <label className="label">Price</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="field">
-                <label className="label">Availability</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                  <option value="available">available</option>
-                  <option value="unavailable">unavailable</option>
-                </select>
-              </div>
-
-              <div className="actions">
-                <button type="submit" className="btn btnPrimary" disabled={busy}>
-                  {busy ? "Saving..." : "Save changes"}
-                </button>
-
-                {(item.photo_path || item.photo_url) ? (
-                  <button
-                    type="button"
-                    className="btn btnGhost"
-                    onClick={removeItemPhoto}
-                    disabled={busy}
-                  >
-                    Remove photo
-                  </button>
-                ) : null}
-
-                <button
-                  type="button"
-                  className="btn btnDanger"
-                  onClick={deleteItem}
-                  disabled={busy}
-                >
-                  Delete item
-                </button>
-
-                <Link href="/my-items" className="btn btnGhost">
-                  Back to my items
+                  {item.item_status === "available" ? "Request to Rent" : "Currently Unavailable"}
                 </Link>
               </div>
-            </form>
-          ) : null}
+            ) : (
+              <div className="actions" style={{ marginTop: 20 }}>
+                {editMode ? (
+                  <>
+                    <button className="btn btnPrimary" onClick={saveEdit} disabled={busy}>
+                      {busy ? "Saving..." : "Save Changes"}
+                    </button>
+                    <button className="btn btnGhost" onClick={() => { setEditMode(false); setNewPhotoFile(null); }}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btnGhost" onClick={() => setEditMode(true)}>Edit Item</button>
+                    <button className="btn btnDanger" onClick={deleteItem} disabled={busy}>Delete</button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      )}
-
-      {message ? (
-        <p
-          className={`messageText ${
-            message.toLowerCase().includes("failed") ||
-            message.toLowerCase().includes("not found")
-              ? "errorText"
-              : ""
-          }`}
-        >
-          {message}
-        </p>
-      ) : null}
+      </div>
     </div>
   );
 }
