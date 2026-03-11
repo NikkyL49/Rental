@@ -39,6 +39,25 @@ export default function PaymentMethods() {
     });
     const [cards, setCards] = useState([]); //list of saved cards
 
+    useEffect(() => {
+        if (!user) return;
+
+        const fetchCards = async () => {
+            const { data, error } = await supabase
+                .from("payment_methods")
+                .select("*")
+                .eq("user_id", user.id);
+
+            if (error) {
+                console.error("Error fetching cards:", error);
+            } else {
+                setCards(data);
+            }
+        };
+
+        fetchCards();
+    }, [user]);
+
     const handleChange = (e) => {
         setFormData({
             ...formData,
@@ -47,7 +66,7 @@ export default function PaymentMethods() {
     };
     const [expiryError, setExpiryError] = useState(""); // store expiry error
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
 
         // Validate expiry date
@@ -71,13 +90,58 @@ export default function PaymentMethods() {
 
         if (editingIndex !== null) {
             // Update existing card
-            const updatedCards = [...cards];
-            updatedCards[editingIndex] = formData;
-            setCards(updatedCards);
-            setEditingIndex(null);
+            const cardId = cards[editingIndex].id;
+
+            const { data, error } = await supabase
+                .from("payment_methods")
+                .update({
+                    card_type: formData.cardType,
+                    card_number: formData.cardNumber,
+                    card_name: formData.cardName,
+                    expiry: formData.expiry,
+                    cvv: formData.cvv
+                })
+                .eq("id", cardId)
+                .select();
+
+            if (error) {
+                console.error("Error updating card:", error);
+            } else {
+                const updatedCards = [...cards];
+                updatedCards[editingIndex] = data[0];
+                setCards(updatedCards);
+            }
         } else {
+            if (!user) {
+                console.error("User not logged in yet");
+                return;
+            }
+
+            console.log("Auth user id:", user?.id);
+            console.log("Insert payload:", {
+                user_id: user?.id,
+                card_type: formData.cardType
+            });
             // Add new card
-            setCards([...cards, formData]);
+            const { data, error } = await supabase
+                .from("payment_methods")
+                .insert([
+                    {
+                        user_id: user.id,
+                        card_type: formData.cardType,
+                        card_number: formData.cardNumber,
+                        card_name: formData.cardName,
+                        expiry: formData.expiry,
+                        cvv: formData.cvv
+                    }
+                ])
+                .select();
+
+            if (error) {
+                console.error("Supabase insert error:", JSON.stringify(error, null, 2));
+            } else {
+                setCards([...cards, data[0]]);
+            }
         }
 
         // Reset form
@@ -98,10 +162,20 @@ export default function PaymentMethods() {
     };
 
     // Delete card button handler
-    const handleDelete = (index) => {
-        const updatedCards = cards.filter((_, i) => i !== index);
-        setCards(updatedCards);
+    const handleDelete = async (index) => {
+        const cardId = cards[index].id;
 
+        const { error } = await supabase
+            .from("payment_methods")
+            .delete()
+            .eq("id", cardId);
+
+        if (error) {
+            console.error("Error deleting card:", error);
+        } else {
+            const updatedCards = cards.filter((_, i) => i !== index);
+            setCards(updatedCards);
+        }
     };
 
     // check if card is expired
@@ -118,20 +192,20 @@ export default function PaymentMethods() {
             <Header />
             <div className="accountLayout">
                 {/* Sidebar */}
-             
-                    <aside className="accountSidebar">
-                        <div className="sidebarUser" style={{ padding: "20px 20px 16px" }}>
-                            <p className="sidebarName">{user?.email ?? "Account"}</p>
-                        </div>
-                        <ul className="sidebarNav">
-                            {SIDEBAR_LINKS.map(({ href, label }) => (
-                                <li key={href} className={`sidebarNavItem${pathname === href ? " active" : ""}`}>
-                                    <Link href={href}>{label}</Link>
-                                </li>
-                            ))}
-                        </ul>
-                    </aside>
-          
+
+                <aside className="accountSidebar">
+                    <div className="sidebarUser" style={{ padding: "20px 20px 16px" }}>
+                        <p className="sidebarName">{user?.email ?? "Account"}</p>
+                    </div>
+                    <ul className="sidebarNav">
+                        {SIDEBAR_LINKS.map(({ href, label }) => (
+                            <li key={href} className={`sidebarNavItem${pathname === href ? " active" : ""}`}>
+                                <Link href={href}>{label}</Link>
+                            </li>
+                        ))}
+                    </ul>
+                </aside>
+
 
                 {/* Content */}
                 <div className="accountContent">
@@ -219,7 +293,7 @@ export default function PaymentMethods() {
                                 />
                             </div>
                             <button type="submit" className="btn btnPrimary">
-                                {editingIndex !== null ? "Update Card" : "Save Card"} 
+                                {editingIndex !== null ? "Update Card" : "Save Card"}
                             </button>
                             <button
                                 type="button"
@@ -240,7 +314,7 @@ export default function PaymentMethods() {
                                 <p>
                                     <strong>{card.cardType}</strong> - {card.cardNumber}{" "}
                                     {isExpired(card.expiry) && (
-                                        <span className="badge badgeRed">Expired</span> 
+                                        <span className="badge badgeRed">Expired</span>
                                     )}
 
                                 </p>
