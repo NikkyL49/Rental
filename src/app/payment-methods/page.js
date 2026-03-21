@@ -7,12 +7,14 @@ import Header from "@/components/Header";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
+//Profile sidebar links
 const SIDEBAR_LINKS = [
   { href: "/profile", label: "Account Main" },
   { href: "/payment-methods", label: "Payment Methods" },
   { href: "/my-items", label: "My Listed Items" },
   { href: "/my-rentals", label: "My Rentals" },
 ];
+
 
 export default function PaymentMethods() {
   const { user, loading } = useAuth();
@@ -25,6 +27,7 @@ export default function PaymentMethods() {
   const [cards, setCards] = useState([]);
   const [expiryError, setExpiryError] = useState("");
 
+  
   useEffect(() => {
     if (!user) return;
     const fetchCards = async () => {

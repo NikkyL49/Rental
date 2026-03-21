@@ -18,9 +18,10 @@ export default function Footer() {
           {/* Help */}
           <div className="footerCol">
             <p className="footerHeading">Help</p>
-            <span className="footerLink">Account</span>
-            <span className="footerLink">FAQ</span>
             <span className="footerLink">How to rent</span>
+            <span className="footerLink">How to list an item</span>
+            <span className="footerLink">FAQ</span>
+            
           </div>
 
           {/* Legal */}
