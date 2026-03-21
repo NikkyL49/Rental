@@ -19,12 +19,14 @@ export default function LoginPage() {
   const [lastName, setLastName] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [banned, setBanned] = useState(false);
 
-  useEffect(() => { if (!loading && user) router.push("/"); }, [loading, user, router]);
+  // Only redirect if we finished signing in via the form (not on every user change)
+  // We handle redirect manually after ban check below
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setMessage(""); setSaving(true);
+    setMessage(""); setBanned(false); setSaving(true);
     try {
       if (mode === "signup") {
         if (!firstName.trim() || !lastName.trim()) { setMessage("Name required."); setSaving(false); return; }
@@ -40,15 +42,33 @@ export default function LoginPage() {
         if (!data.session) {
           setMode("signin"); setMessage("Account created! Check your email then sign in."); setSaving(false); return;
         }
+        router.push("/");
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
-        if (data.user) await ensureProfileForUser(data.user).catch(console.error);
+
+        // Check ban status before allowing in
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("is_banned")
+          .eq("id", data.user.id)
+          .maybeSingle();
+
+        if (profile?.is_banned) {
+          await supabase.auth.signOut();
+          setBanned(true);
+          setSaving(false);
+          return;
+        }
+
+        await ensureProfileForUser(data.user).catch(console.error);
+        router.push("/");
       }
-      router.push("/");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Authentication failed.");
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -56,12 +76,30 @@ export default function LoginPage() {
       <Header />
       <div className="container containerPt48">
         <div className="loginWrapper">
-          {/* Logo */}
           <div className="loginLogoWrap">
             <h1 className="loginHeading">
               {mode === "signup" ? "Create an account" : "Welcome back"}
             </h1>
           </div>
+
+          {/* Banned message */}
+          {banned && (
+            <div style={{
+              background: "#fef2f2",
+              border: "1.5px solid #dc2626",
+              borderRadius: "10px",
+              padding: "16px 20px",
+              marginBottom: "16px",
+              textAlign: "center",
+            }}>
+              <p style={{ margin: "0 0 4px", fontWeight: 700, color: "#b91c1c", fontSize: "15px" }}>
+                Account Suspended
+              </p>
+              <p style={{ margin: 0, fontSize: "13px", color: "#7f1d1d" }}>
+                Your account has been suspended. Please contact support for assistance.
+              </p>
+            </div>
+          )}
 
           <form className="formCard" onSubmit={handleSubmit}>
             {mode === "signup" && (
@@ -105,7 +143,7 @@ export default function LoginPage() {
           <p className="loginToggleWrap">
             {mode === "signup" ? "Already have an account? " : "Don't have an account? "}
             <button
-              onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setMessage(""); }}
+              onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setMessage(""); setBanned(false); }}
               className="loginToggleBtn"
             >
               {mode === "signup" ? "Sign in" : "Sign up"}

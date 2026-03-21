@@ -21,7 +21,7 @@ function genId() { return "R" + Date.now().toString().slice(-6); }
 export default function RentPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isBanned } = useAuth();
 
   const [item, setItem] = useState(null);
   const [locations, setLocations] = useState([]);
@@ -73,6 +73,7 @@ export default function RentPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!user) { router.push("/login"); return; }
+    if (isBanned) { setMessage("Your account has been suspended and cannot place rentals. Please contact support."); return; }
     if (!returnDate || new Date(returnDate) <= new Date(startDate)) {
       setMessage("Return date must be after start date."); return;
     }
@@ -238,10 +239,15 @@ export default function RentPage() {
                   <button
                     type="submit"
                     className="btn btnPrimary rentSubmitBtn"
-                    disabled={saving || !user || savedCards.length === 0}
+                    disabled={saving || !user || savedCards.length === 0 || isBanned}
                   >
-                    {saving ? "Processing..." : "Request to Rent"}
+                    {saving ? "Processing..." : isBanned ? "Account Suspended" : "Request to Rent"}
                   </button>
+                  {isBanned && (
+                    <p className="messageText errorText actionsMt8">
+                      Your account has been suspended. Please contact support.
+                    </p>
+                  )}
                   {!user && (
                     <p className="meta rentLoginNote">
                       Please <Link href="/login">log in</Link> to rent.

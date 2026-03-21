@@ -57,9 +57,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   const isAdmin = profile?.role === "admin";
+  const isBanned = profile?.is_banned === true;
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, isAdmin, loading }}>
+    <AuthContext.Provider value={{ user, session, profile, isAdmin, isBanned, loading }}>
       {children}
     </AuthContext.Provider>
   );
