@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import Header from "@/components/Header";
-import Hero from "@/components/Hero";
-import BrowseItems from "@/components/BrowseItems";
 import ItemCard from "@/components/ItemCard";
-import Footer from "@/components/Footer";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -32,10 +27,9 @@ type Item = {
   item_status?: string;
   photo_url?: string;
   created_at: string;
-  
 };
 
-export default function HomePage() {
+export default function BrowsePage() {
   const { user, loading } = useAuth();
   
   const [items, setItems] = useState<Item[]>([]);
@@ -65,17 +59,44 @@ export default function HomePage() {
   }, [categoryFilter]);
 
   const visibleItems = user
-    ? items.filter((item) => item.owner_id !== (user as any).id) 
+    ? items.filter((item) => item.owner_id !== (user as any).id)
     : items;
 
   return (
     <div>
-      <Header />
-      <div className="container">
-       <Hero />
-       <BrowseItems />
+      <div className="container top-margin">
+           {/* Category filter */}
+        <div className="filterPills">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setCategoryFilter(c.id)}
+              className={`pill${categoryFilter === c.id ? " pillActive" : ""}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Items grid */}
+        {loading || !isLoaded ? (
+          <div className="centerNotice">Loading items...</div>
+        ) : errorMessage ? (
+          <div className="centerNotice">
+            <p className="errorText">{`Failed to load items: ${errorMessage}`}</p>
+          </div>
+        ) : visibleItems.length === 0 ? (
+          <div className="centerNotice">
+            {user ? "No items from other students yet." : "No items have been posted yet."}
+          </div>
+        ) : (
+          <div className="cardsGrid">
+            {visibleItems.map((item) => (
+              <ItemCard key={item.id} item={item} href={`/items/${item.id}`} />
+            ))}
+          </div>
+        )}
       </div>
-      <Footer/>
     </div>
   );
 }

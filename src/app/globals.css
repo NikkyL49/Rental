@@ -58,6 +58,10 @@ a {
   padding-bottom: 60px;
 }
 
+.top-margin{
+  margin-top: 30px;
+}
+
 /* ─── Header / Nav ───────────────────────────────────── */
 .appHeader {
   position: sticky;

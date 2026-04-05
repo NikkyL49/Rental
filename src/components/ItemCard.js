@@ -8,7 +8,7 @@ function fmtPrice(val) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-export default function ItemCard({ item, href, showOwner = true, actionLabel }) {
+export default function ItemCard({ item, href, showOwner = true }) {
   const price = fmtPrice(item.daily_rate ?? item.price);
   const condLabel = item.condition?.replace("_", " ") ?? null;
 
@@ -37,11 +37,13 @@ export default function ItemCard({ item, href, showOwner = true, actionLabel }) 
           {showOwner && item.owner_name && (
             <p className="itemCardMeta">{item.owner_name}</p>
           )}
-          {actionLabel && (
+          {/*           {actionLabel && (
             <p className="itemCardMeta itemCardAction">
               {actionLabel} →
+
             </p>
-          )}
+          )}*/}
+
         </div>
       </div>
     </Link>
