@@ -90,6 +90,11 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+## Live Demo
+Open https://rental-bice-kappa.vercel.app/ in your browser.
+
+---
+
 ## Test Accounts
 
 You can register a new account from the `/login` page, or use one of the following existing accounts:
@@ -118,6 +123,7 @@ You can register a new account from the `/login` page, or use one of the followi
 ## Tech Stack
 Frontend: React / HTML / CSS
 Backend/Database: Supabase
+Deployment: Vercel
 ---
 
 ## User Roles
